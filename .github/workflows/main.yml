@@ -1,0 +1,58 @@
+name: "Main"
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@master
+      - name: Build and push image
+        uses: gtadam/go-build-action@latest
+        with:
+          IMAGE_NAMESPACE: "gtadam89"
+          IMAGE_NAME: "ashilda-user"
+          DOCKER_USERNAME: "${{ secrets.DOCKER_USERNAME }}"
+          DOCKER_PASSWORD: "${{ secrets.DOCKER_PASSWORD }}"
+      - name: Save version
+        uses: actions/upload-artifact@v2
+        with:
+          name: release-version
+          path: release_version.txt
+          retention-days: 1
+  deploy-service:
+    needs: build-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch version
+        uses: actions/download-artifact@v2
+        with:
+          name: release-version
+      - name: Prepare deployment
+        uses: gtadam/prepare-kubernetes-deployment-action@latest
+        with:
+          DEBUG: true
+          SERVICE_NAME: "ashilda-user"
+          SERVICE_REPLICA_COUNT: 1
+          SERVICE_IMAGE_NAME: "ashilda-user"
+          SERVICE_IMAGE_NAMESPACE: "gtadam89"
+          SERVICE_ENVVARS: "[{\"name\": \"DATABASE_USERNAME\", \"value\": \"${{ secrets.DATABASE_USERNAME }}\"},{\"name\": \"DATABASE_PASSWORD\", \"value\": \"${{ secrets.DATABASE_PASSWORD }}\"},{\"name\": \"DATABASE_HOST\", \"value\": \"${{ secrets.DATABASE_HOST }}\"},{\"name\": \"DATABASE_PORT\", \"value\": \"${{ secrets.DATABASE_PORT }}\"},{\"name\": \"DATABASE_NAME\", \"value\": \"${{ secrets.DATABASE_BASENAME }}-development\"}]"
+      - name: Deploy service
+        uses: gtadam/kubernetes-deploy-action@latest
+        with:
+          KUBE_CONFIG: "${{ secrets.KUBE_CONFIG }}"
+          RELEASE_NAME: "ashilda-user"
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ env.VERSION_NUMBER }}
+          release_name: Release v${{ env.VERSION_NUMBER }}
+          draft: false
+          prerelease: false
